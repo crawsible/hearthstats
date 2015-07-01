@@ -99,27 +99,44 @@ class Api::V3::MatchesController < ApplicationController
     rescue ActiveRecord::RecordNotFound => e
       render json: {status: 400, message: e.message} and return
     end
+    new_matches = []
     response = []
     _req[:matches].each do |_match_params|
-      match = parse_match(_match_params, deck.klass_id)
-
-      if match.save
-        if match.mode_id == 3
-          MatchRank.create(match_id: match.id, rank_id: _match_params["ranklvl"].to_i)
-        elsif match.mode_id == 1
-          submit_arena_match(current_user, match, Klass::LIST.invert[_match_params["@class"]])
-        end
-        MatchDeck.create(match_id: match.id,
-                        deck_id: deck.id,
-                        deck_version_id: _match_params["deck_version_id"].to_i
-                        )
-        match.__elasticsearch__.index_document
-        response << { status: 200, data: match }
-      else
-        response << { status: 400, data: match.errors.full_messages }
+      new_matches << parse_match_sql(_match_params, deck.klass_id)
+    end
+    sql_statement = "INSERT INTO matches (`user_id`, `mode_id`, `klass_id`, `result_id`, `coin`, `oppclass_id`, `oppname`, `numturns`, `duration`, `notes`, `appsubmit`, `created_at`, `updated_at`) VALUES #{new_matches.join(",")}"
+    initial_id = Match.last.id
+    last_id =  ActiveRecord::Base.connection.insert sql_statement
+    match_deck_sql = []
+    match_rank_sql = []
+    current_time = Time.now.to_s(:db)
+    (initial_id..last_id).each_with_index do |match_id, i|
+      match_rank_sql << "(#{match_id}, #{deck.id},'#{current_time}', '#{current_time}')"
+      # MatchDeck.create(match_id: match_id, deck_id: deck.id)
+      if _req[:matches][i][:mode] == "Ranked"
+        match_rank_sql << "(#{match_id}, #{_req[:match][i]["ranklvl"].to_i || 'NULL'}, '#{current_time}', '#{current_time}')"
+        # MatchRank.create(match_id: match_id, rank_id: _req[:match][i]["ranklvl"].to_i)
       end
     end
-
+    deck_statement = "INSERT INTO match_decks (`match_id`, `deck_id`, `created_at`,`updated_at`) VALUES #{match_deck_sql.join(",")}"
+    rank_statement = "INSERT INTO match_ranks (`match_id`, `rank_id`, `created_at`,`updated_at`) VALUES #{match_rank_sql.join(",")}"
+    ActiveRecord::Base.connection.insert deck_statement if !match_deck_sql.empty?
+    ActiveRecord::Base.connection.insert rank_statement if !match_rank_sql.empty?
+    # if match.save
+    #   if match.mode_id == 3
+    #     MatchRank.create(match_id: match.id, rank_id: _match_params["ranklvl"].to_i)
+    #   elsif match.mode_id == 1
+    #     submit_arena_match(current_user, match, Klass::LIST.invert[_match_params["@class"]])
+    #   end
+    #   MatchDeck.create(match_id: match.id,
+    #                   deck_id: deck.id,
+    #                   deck_version_id: _match_params["deck_version_id"].to_i
+    #                   )
+    #   match.__elasticsearch__.index_document
+    #   response << { status: 200, data: match }
+    # else
+    #   response << { status: 400, data: match.errors.full_messages }
+    # end
     render json: {status: 200,  data: response}
   end
 
@@ -233,6 +250,17 @@ class Api::V3::MatchesController < ApplicationController
   end
 
 
+  def parse_match_sql(_params, klass_id)
+    _params = _params.inject({}){|memo,(k,v)| memo[k.to_sym] = v; memo}
+    # Parse params to get variables
+    mode     = Mode::LIST.invert[_params[:mode]] || 'NULL'
+    oppclass = Klass::LIST.invert[_params[:oppclass]] || 'NULL'
+    result   = Match::RESULTS_LIST.invert[_params[:result]] || 'NULL'
+    coin     = _params[:coin] == "true"
+    match_str = "(#{current_user.id},#{mode},#{klass_id},#{result},#{coin},#{oppclass},'#{_params[:oppname] || 'NULL'}',#{_params[:numturns] || 'NULL'},#{_params[:duration] || 'NULL'},'#{_params[:notes] || 'NULL'}',true,'#{Time.now.to_s(:db)}','#{Time.now.to_s(:db)}')"
+
+    match_str
+  end
   def parse_match(_params, klass_id)
     _params = _params.inject({}){|memo,(k,v)| memo[k.to_sym] = v; memo}
     # Parse params to get variables
