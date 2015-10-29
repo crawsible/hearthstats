@@ -269,16 +269,11 @@ class Deck < ActiveRecord::Base
   end
 
   def card_array_from_cardstring
-    cardstring_array = cardstring_as_array
+    cardstring_array = cardstring_as_array.sort_by! { |el| el[0] }
 
-    arr = []
-    cards = Card.find(cardstring_array.map {|e| e[0]}).sort_by{ |card| [ card.mana, card.name] }
-    cards.each do |card|
-      quantity = cardstring_array.detect {|c| c[0].to_i == card.id }[1]
-      arr << [card, quantity]
-    end
-
-    arr
+    cards = Card.find(cardstring_array.map { |el| el[0] })
+    cards.zip(cardstring_array.map { |el| el[1] })
+      .sort_by{ |el| [el[0].mana, el[0].name] }
   end
 
   def rank_wr_count
@@ -325,7 +320,6 @@ class Deck < ActiveRecord::Base
   end
 
   def cardstring_as_array
-    # Guarding for an empty cardstring
     return [] if cardstring.nil?
 
     cardstring.split(",").map do |card_data|

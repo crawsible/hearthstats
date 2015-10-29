@@ -74,7 +74,7 @@ class DecksController < ApplicationController
     rescue TypeError, JSON::ParserError => e
       @notes = @deck.notes
       @general = @notes
-    end 
+    end
 
     all_versions = @deck.deck_versions
     if !params[:version].nil?
@@ -163,7 +163,7 @@ class DecksController < ApplicationController
     if @deck.unique_deck.nil?
       redirect_to deck_path(@deck) and return
     end
-    
+
     begin
       @notes = JSON.parse(@deck.notes)
       @general = @notes["general"]
@@ -173,7 +173,7 @@ class DecksController < ApplicationController
     rescue TypeError, JSON::ParserError => e
       @notes = @deck.notes
       @general = @notes
-    end 
+    end
 
     @card_array = @deck.card_array_from_cardstring
     commontator_thread_show(@deck)
